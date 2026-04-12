@@ -1,0 +1,6 @@
+PyBluez2>=0.46
+ollama>=0.4.0
+mss>=9.0.2
+pyautogui>=0.9.54
+Pillow>=10.4.0
+python-dotenv>=1.0.1

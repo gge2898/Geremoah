@@ -1,4 +1,4 @@
-name: Build & Release
+name: Build & Release APK
 
 on:
   push:
@@ -10,10 +10,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ── Android APK ───────────────────────────────────────────────────────────
-  build-apk:
+  build:
     name: Build Android APK
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -41,159 +41,35 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: android-apk
+          name: AIControl-APK
           path: dist/AIControl.apk
+          retention-days: 30
 
-  # ── Computer agent — Linux ────────────────────────────────────────────────
-  build-linux:
-    name: Build Linux Agent
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install system Bluetooth headers
-        run: sudo apt-get install -y libbluetooth-dev python3-dev
-
-      - name: Install Python dependencies + PyInstaller
-        working-directory: computer_agent
-        run: pip install -r requirements.txt pyinstaller
-
-      - name: Build standalone executable
-        working-directory: computer_agent
-        run: |
-          pyinstaller \
-            --onefile \
-            --name AIControlAgent-linux \
-            --hidden-import bluetooth \
-            --hidden-import mss \
-            --hidden-import PIL \
-            main.py
-
-      - name: Collect binary
-        run: |
-          mkdir -p dist
-          cp computer_agent/dist/AIControlAgent-linux dist/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-agent
-          path: dist/AIControlAgent-linux
-
-  # ── Computer agent — Windows ──────────────────────────────────────────────
-  build-windows:
-    name: Build Windows Agent
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python dependencies + PyInstaller
-        working-directory: computer_agent
-        run: pip install -r requirements.txt pyinstaller
-
-      - name: Build standalone executable
-        working-directory: computer_agent
-        run: |
-          pyinstaller `
-            --onefile `
-            --name AIControlAgent-windows `
-            --hidden-import mss `
-            --hidden-import PIL `
-            --noconsole `
-            main.py
-
-      - name: Collect binary
-        run: |
-          mkdir dist
-          copy computer_agent\dist\AIControlAgent-windows.exe dist\
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-agent
-          path: dist/AIControlAgent-windows.exe
-
-  # ── Computer agent — macOS ────────────────────────────────────────────────
-  build-macos:
-    name: Build macOS Agent
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Python dependencies + PyInstaller
-        working-directory: computer_agent
-        run: pip install -r requirements.txt pyinstaller
-
-      - name: Build standalone executable
-        working-directory: computer_agent
-        run: |
-          pyinstaller \
-            --onefile \
-            --name AIControlAgent-macos \
-            --hidden-import mss \
-            --hidden-import PIL \
-            main.py
-
-      - name: Collect binary
-        run: |
-          mkdir -p dist
-          cp computer_agent/dist/AIControlAgent-macos dist/
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: macos-agent
-          path: dist/AIControlAgent-macos
-
-  # ── GitHub Release — attaches all artifacts ───────────────────────────────
-  release:
-    name: Create GitHub Release
-    needs: [build-apk, build-linux, build-windows, build-macos]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
           name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Build' }}
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           body: |
-            ## AI Computer Control
+            ## AI Control — Android App
 
-            ### Android App
-            Download **AIControl.apk** and install on your Android phone.
+            Download **AIControl.apk** and install it on your phone.
 
-            ### Computer Agent (pick your OS — no installation required)
-            | OS | File | Instructions |
-            |---|---|---|
-            | Linux | `AIControlAgent-linux` | `chmod +x AIControlAgent-linux && ./AIControlAgent-linux` |
-            | Windows | `AIControlAgent-windows.exe` | Double-click to run |
-            | macOS | `AIControlAgent-macos` | `chmod +x AIControlAgent-macos && ./AIControlAgent-macos` |
+            ### Install
+            1. Download `AIControl.apk`
+            2. Open it on your Android device
+            3. Allow "Install from unknown sources" if prompted
 
-            **First launch**: The agent will automatically download Ollama and the Gemma 3 AI model (~3 GB one-time download). After that it starts instantly.
+            ### Requirements
+            - Android 9+ (API 28) for Bluetooth HID
+            - Android 14+ on Pixel 8/9 or Galaxy S24 for on-device AI (Gemini Nano)
 
-            See the [README](../../blob/main/README.md) for full usage instructions.
-          files: |
-            dist/AIControl.apk
-            dist/AIControlAgent-linux
-            dist/AIControlAgent-windows.exe
-            dist/AIControlAgent-macos
+            ### How it works
+            - **Nothing needed on the computer** — the phone pairs as a Bluetooth keyboard/mouse
+            - Point the phone camera at the computer screen
+            - Type a task — AI sees the screen and controls the computer
+          files: dist/AIControl.apk
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

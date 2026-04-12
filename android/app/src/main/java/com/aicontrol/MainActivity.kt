@@ -2,12 +2,11 @@ package com.aicontrol
 
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.content.pm.PackageManager
-import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.view.inputmethod.EditorInfo
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
@@ -18,22 +17,25 @@ import androidx.lifecycle.lifecycleScope
 import com.aicontrol.databinding.ActivityMainBinding
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private val viewModel: TaskViewModel by viewModels()
 
-    private val btClient = BluetoothClient()
-    private var bluetoothAdapter: BluetoothAdapter? = null
+    private lateinit var hidController: HidController
+    private lateinit var cameraController: CameraController
+    private lateinit var aiAgent: AIAgent
 
-    // Permission request launcher
     private val requestPermissions =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { grants ->
-            if (grants.values.all { it }) showDevicePicker()
-            else toast("Bluetooth permission denied.")
+            val denied = grants.filterValues { !it }.keys
+            if (denied.isEmpty()) {
+                startCamera()
+                initHid()
+            } else {
+                toast("Permissions required: ${denied.joinToString()}")
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,202 +43,181 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        val btManager = getSystemService(BluetoothManager::class.java)
-        bluetoothAdapter = btManager?.adapter
+        hidController  = HidController(this)
+        cameraController = CameraController(this, this)
+        aiAgent          = AIAgent(this)
 
-        if (bluetoothAdapter == null) {
-            toast("This device does not support Bluetooth.")
-            binding.btnConnect.isEnabled = false
+        // Check AI availability
+        if (!aiAgent.isAvailable()) {
+            showAiUnavailableDialog()
+        } else {
+            aiAgent.init()
+        }
+
+        // HID connection state
+        hidController.onConnectionChanged = { connected, name ->
+            runOnUiThread {
+                viewModel.setConnected(if (connected) name else null)
+                if (connected) viewModel.addLog("HID connected to $name")
+                else viewModel.addLog("HID disconnected")
+            }
         }
 
         binding.btnConnect.setOnClickListener { onConnectClicked() }
-        binding.btnSend.setOnClickListener { onSendClicked() }
+        binding.btnSend.setOnClickListener { onRunClicked() }
+        binding.etTask.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_SEND) { onRunClicked(); true } else false
+        }
 
-        // Observe ViewModel state
-        viewModel.isConnected.observe(this) { connected ->
-            val deviceName = viewModel.connectedDevice.value
-            if (connected && deviceName != null) {
-                binding.tvStatus.text = "Connected to $deviceName"
-                binding.tvStatus.setTextColor(getColor(R.color.status_done))
-                binding.btnSend.isEnabled = true
-                binding.btnConnect.text = "Disconnect"
-            } else {
-                binding.tvStatus.text = "Not connected"
-                binding.tvStatus.setTextColor(getColor(R.color.status_error))
-                binding.btnSend.isEnabled = false
-                binding.btnConnect.text = "Connect to Computer"
-            }
+        // Observe ViewModel
+        viewModel.connectionState.observe(this) { state ->
+            val connected = state == ConnectionState.CONNECTED
+            val name = viewModel.connectedDevice.value
+            binding.tvStatusText.text = if (connected) "Connected to $name" else "Not connected — pair phone as HID device"
+            binding.tvStatusDot.setBackgroundResource(if (connected) R.drawable.circle_green else R.drawable.circle_red)
+            binding.btnConnect.text = if (connected) "Disconnect" else "Connect"
+            binding.btnSend.isEnabled = connected
         }
 
         viewModel.log.observe(this) { entries ->
-            val sb = StringBuilder()
-            for (entry in entries) {
-                sb.appendLine(formatLogEntry(entry))
-            }
-            binding.tvLog.text = sb
-            // Auto-scroll to bottom
+            binding.tvLog.text = entries.takeLast(80).joinToString("\n")
             binding.scrollLog.post { binding.scrollLog.fullScroll(android.view.View.FOCUS_DOWN) }
         }
-    }
 
-    private fun onConnectClicked() {
-        if (btClient.isConnected) {
-            disconnectBluetooth()
-            return
+        viewModel.isRunning.observe(this) { running ->
+            binding.btnSend.text = if (running) "Stop" else "Run"
+            binding.etTask.isEnabled = !running
+            binding.tvHint.visibility = if (running) android.view.View.GONE else android.view.View.VISIBLE
         }
 
-        val requiredPerms = buildList {
+        requestRequiredPermissions()
+    }
+
+    // ── Permissions ──────────────────────────────────────────────────────────
+
+    private fun requestRequiredPermissions() {
+        val needed = buildList {
+            add(Manifest.permission.CAMERA)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 add(Manifest.permission.BLUETOOTH_CONNECT)
-                add(Manifest.permission.BLUETOOTH_SCAN)
+                add(Manifest.permission.BLUETOOTH_ADVERTISE)
             } else {
                 add(Manifest.permission.BLUETOOTH)
                 add(Manifest.permission.BLUETOOTH_ADMIN)
             }
-        }.filter { ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        }.filter {
+            ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
 
-        if (requiredPerms.isEmpty()) showDevicePicker()
-        else requestPermissions.launch(requiredPerms.toTypedArray())
+        if (needed.isEmpty()) {
+            startCamera()
+            initHid()
+        } else {
+            requestPermissions.launch(needed.toTypedArray())
+        }
     }
 
-    private fun showDevicePicker() {
-        val adapter = bluetoothAdapter ?: return
+    // ── Camera ────────────────────────────────────────────────────────────────
 
-        if (!adapter.isEnabled) {
-            toast("Please enable Bluetooth first.")
+    private fun startCamera() {
+        cameraController.start(binding.cameraPreview)
+        viewModel.addLog("Camera started. Point at computer screen.")
+    }
+
+    // ── Bluetooth HID ─────────────────────────────────────────────────────────
+
+    private fun initHid() {
+        val btManager = getSystemService(BluetoothManager::class.java)
+        val adapter = btManager?.adapter
+        if (adapter == null || !adapter.isEnabled) {
+            toast("Please enable Bluetooth.")
             return
         }
+        hidController.register(adapter)
+        viewModel.addLog("HID profile registered. Pair this phone from your computer's Bluetooth settings.")
+    }
 
-        val pairedDevices: Set<BluetoothDevice> = try {
-            adapter.bondedDevices ?: emptySet()
-        } catch (e: SecurityException) {
-            toast("Bluetooth permission needed.")
-            return
+    private fun onConnectClicked() {
+        if (hidController.isConnected) {
+            hidController.unregister()
+            viewModel.setConnected(null)
+        } else {
+            showConnectionInstructions()
         }
+    }
 
-        if (pairedDevices.isEmpty()) {
-            toast("No paired Bluetooth devices found. Pair your computer first in Settings → Bluetooth.")
-            return
-        }
-
-        val names = pairedDevices.map { it.name ?: it.address }.toTypedArray()
-        val devices = pairedDevices.toList()
-
+    private fun showConnectionInstructions() {
         AlertDialog.Builder(this)
-            .setTitle("Select Computer")
-            .setItems(names) { _, index -> connectToDevice(devices[index]) }
+            .setTitle("How to connect")
+            .setMessage(
+                "1. On your COMPUTER, open Bluetooth settings\n" +
+                "2. Search for new devices\n" +
+                "3. Select \"AI Control\" from the list\n" +
+                "4. Confirm the pairing on both devices\n\n" +
+                "The phone will appear as a Bluetooth keyboard/mouse.\n" +
+                "No software needed on the computer."
+            )
+            .setPositiveButton("OK", null)
             .show()
     }
 
-    private fun connectToDevice(device: BluetoothDevice) {
-        binding.tvStatus.text = "Connecting…"
-        binding.tvStatus.setTextColor(Color.YELLOW)
-        binding.btnConnect.isEnabled = false
+    // ── AI Task ───────────────────────────────────────────────────────────────
 
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                btClient.connect(device)
-                val name = try { device.name } catch (_: SecurityException) { device.address }
-                withContext(Dispatchers.Main) {
-                    viewModel.setConnected(name)
-                    viewModel.clearLog()
-                    binding.btnConnect.isEnabled = true
-                    appendLog("system", "Connected to $name. Enter a task below.")
-                }
-                // Start reading status updates
-                btClient.readStatusUpdates { json -> handleStatusUpdate(json) }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    binding.btnConnect.isEnabled = true
-                    viewModel.setConnected(null)
-                    toast("Connection failed: ${e.message}")
-                }
-            }
-            // Connection ended
-            withContext(Dispatchers.Main) {
-                viewModel.setConnected(null)
-                appendLog("system", "Disconnected.")
-            }
-        }
-    }
-
-    private fun handleStatusUpdate(json: JSONObject) {
-        val type = json.optString("type", "info")
-        val text = when (type) {
-            "thinking" -> json.optString("message", "")
-            "action"   -> buildActionText(json)
-            "done"     -> json.optString("message", "Task complete.")
-            "error"    -> json.optString("message", "Unknown error.")
-            else       -> json.toString()
-        }
-        lifecycleScope.launch(Dispatchers.Main) {
-            appendLog(type, text)
-        }
-    }
-
-    private fun buildActionText(json: JSONObject): String {
-        val action = json.optString("action", "?")
-        val parts = mutableListOf<String>()
-        json.keys().forEach { key ->
-            if (key != "type" && key != "action") {
-                parts.add("$key=${json.opt(key)}")
-            }
-        }
-        return if (parts.isEmpty()) action else "$action(${parts.joinToString(", ")})"
-    }
-
-    private fun appendLog(type: String, text: String) {
-        viewModel.appendLog(LogEntry(type, text))
-    }
-
-    private fun formatLogEntry(entry: LogEntry): String {
-        val prefix = when (entry.type) {
-            "thinking" -> "[AI] "
-            "action"   -> "[→]  "
-            "done"     -> "[✓]  "
-            "error"    -> "[!]  "
-            "system"   -> "[*]  "
-            else       -> "     "
-        }
-        return "$prefix${entry.text}"
-    }
-
-    private fun onSendClicked() {
-        val task = binding.etTask.text?.toString()?.trim() ?: return
-        if (task.isEmpty()) {
-            toast("Please enter a task.")
-            return
-        }
-        if (!btClient.isConnected) {
-            toast("Not connected. Tap 'Connect to Computer' first.")
+    private fun onRunClicked() {
+        if (viewModel.isRunning.value == true) {
+            // TODO: cancellation — for now just log
+            viewModel.addLog("Stopping after current step...")
+            viewModel.setRunning(false)
             return
         }
 
-        appendLog("system", "Sending: $task")
+        val task = binding.etTask.text?.toString()?.trim()
+        if (task.isNullOrEmpty()) { toast("Enter a task first."); return }
+        if (!hidController.isConnected) { toast("Not connected to a computer."); return }
+
+        viewModel.clearLog()
+        viewModel.setRunning(true)
         binding.etTask.setText("")
 
         lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                btClient.sendTask(task)
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
-                    toast("Failed to send: ${e.message}")
-                }
-            }
+            // Configure HID screen resolution from user setting (could be a settings screen)
+            // Default 1920x1080; user can adjust via a future settings screen.
+            hidController.screenWidth  = 1920
+            hidController.screenHeight = 1080
+
+            aiAgent.runTask(
+                task        = task,
+                camera      = cameraController,
+                hid         = hidController,
+                onStatus    = { msg -> runOnUiThread { viewModel.addLog(msg) } }
+            )
+
+            runOnUiThread { viewModel.setRunning(false) }
         }
     }
 
-    private fun disconnectBluetooth() {
-        btClient.disconnect()
-        viewModel.setConnected(null)
-        appendLog("system", "Disconnected.")
+    // ── AI availability dialog ────────────────────────────────────────────────
+
+    private fun showAiUnavailableDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("AI Not Available")
+            .setMessage(
+                "This app uses Google's on-device Gemini Nano AI (via AICore).\n\n" +
+                "Supported devices:\n" +
+                "• Google Pixel 8, 8 Pro, 8a, 9 series\n" +
+                "• Samsung Galaxy S24 series\n\n" +
+                "Your device does not appear to support AICore yet.\n" +
+                "You can still use the app for HID keyboard/mouse control without AI."
+            )
+            .setPositiveButton("Continue anyway") { _, _ -> /* let user use HID manually */ }
+            .setNegativeButton("Exit") { _, _ -> finish() }
+            .show()
     }
 
-    private fun toast(msg: String) =
-        Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     override fun onDestroy() {
         super.onDestroy()
-        btClient.disconnect()
+        hidController.unregister()
     }
 }

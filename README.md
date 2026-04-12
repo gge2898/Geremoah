@@ -2,6 +2,18 @@
 
 An AI agent that watches your computer screen in real time and controls it (mouse + keyboard) — operated from your Android phone over Bluetooth.
 
+## Download the Android App
+
+**[Download AIControl.apk](https://github.com/gge2898/Geremoah/releases/latest/download/AIControl.apk)**
+
+> The APK is built automatically by GitHub Actions on every push. If the link above says "Not Found", wait a few minutes for the first build to complete, then try again.
+
+**Install steps:**
+1. Click the link above on your Android phone (or transfer the file to your phone)
+2. Open the downloaded `AIControl.apk`
+3. Tap **Install** — if prompted, allow "Install from unknown sources" in Settings → Security
+4. Open the **AI Control** app
+
 ```
 ANDROID PHONE                     COMPUTER
 ┌─────────────────┐               ┌──────────────────────────────┐

@@ -1,4 +1,4 @@
-name: Build & Release APK
+name: Build & Release
 
 on:
   push:
@@ -10,68 +10,190 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    name: Build Debug APK
+  # ── Android APK ───────────────────────────────────────────────────────────
+  build-apk:
+    name: Build Android APK
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
           cache: gradle
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v3
+      - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.6'
 
-      - name: Write local.properties (point to GitHub Actions Android SDK)
+      - name: Write local.properties
         run: echo "sdk.dir=$ANDROID_SDK_ROOT" > android/local.properties
 
       - name: Build debug APK
         working-directory: android
         run: gradle assembleDebug --no-daemon
 
-      - name: Rename APK
+      - name: Collect APK
         run: |
-          mkdir -p artifacts
-          cp android/app/build/outputs/apk/debug/app-debug.apk \
-             artifacts/AIControl.apk
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/AIControl.apk
 
-      - name: Upload APK as workflow artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: AIControl-APK
-          path: artifacts/AIControl.apk
-          retention-days: 30
+          name: android-apk
+          path: dist/AIControl.apk
 
-      # Create / update a GitHub Release with the APK attached.
-      # Runs on every push to the branch (updates "latest" pre-release)
-      # and on every version tag (creates a proper release).
-      - name: Create GitHub Release
+  # ── Computer agent — Linux ────────────────────────────────────────────────
+  build-linux:
+    name: Build Linux Agent
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system Bluetooth headers
+        run: sudo apt-get install -y libbluetooth-dev python3-dev
+
+      - name: Install Python dependencies + PyInstaller
+        working-directory: computer_agent
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build standalone executable
+        working-directory: computer_agent
+        run: |
+          pyinstaller \
+            --onefile \
+            --name AIControlAgent-linux \
+            --hidden-import bluetooth \
+            --hidden-import mss \
+            --hidden-import PIL \
+            main.py
+
+      - name: Collect binary
+        run: |
+          mkdir -p dist
+          cp computer_agent/dist/AIControlAgent-linux dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-agent
+          path: dist/AIControlAgent-linux
+
+  # ── Computer agent — Windows ──────────────────────────────────────────────
+  build-windows:
+    name: Build Windows Agent
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies + PyInstaller
+        working-directory: computer_agent
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build standalone executable
+        working-directory: computer_agent
+        run: |
+          pyinstaller `
+            --onefile `
+            --name AIControlAgent-windows `
+            --hidden-import mss `
+            --hidden-import PIL `
+            --noconsole `
+            main.py
+
+      - name: Collect binary
+        run: |
+          mkdir dist
+          copy computer_agent\dist\AIControlAgent-windows.exe dist\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-agent
+          path: dist/AIControlAgent-windows.exe
+
+  # ── Computer agent — macOS ────────────────────────────────────────────────
+  build-macos:
+    name: Build macOS Agent
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies + PyInstaller
+        working-directory: computer_agent
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build standalone executable
+        working-directory: computer_agent
+        run: |
+          pyinstaller \
+            --onefile \
+            --name AIControlAgent-macos \
+            --hidden-import mss \
+            --hidden-import PIL \
+            main.py
+
+      - name: Collect binary
+        run: |
+          mkdir -p dist
+          cp computer_agent/dist/AIControlAgent-macos dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-agent
+          path: dist/AIControlAgent-macos
+
+  # ── GitHub Release — attaches all artifacts ───────────────────────────────
+  release:
+    name: Create GitHub Release
+    needs: [build-apk, build-linux, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'latest' }}
           name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'Latest Build' }}
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           body: |
-            ## AI Control Android App
+            ## AI Computer Control
 
-            Download **AIControl.apk** below and install it on your Android phone.
+            ### Android App
+            Download **AIControl.apk** and install on your Android phone.
 
-            ### Install instructions
-            1. Download `AIControl.apk`
-            2. Open it on your Android device
-            3. Tap **Install** (you may need to allow "Install from unknown sources" in Settings → Security)
+            ### Computer Agent (pick your OS — no installation required)
+            | OS | File | Instructions |
+            |---|---|---|
+            | Linux | `AIControlAgent-linux` | `chmod +x AIControlAgent-linux && ./AIControlAgent-linux` |
+            | Windows | `AIControlAgent-windows.exe` | Double-click to run |
+            | macOS | `AIControlAgent-macos` | `chmod +x AIControlAgent-macos && ./AIControlAgent-macos` |
 
-            ### Before connecting
-            Make sure the computer agent is running — see the [README](../../blob/main/README.md) for setup steps.
-          files: artifacts/AIControl.apk
+            **First launch**: The agent will automatically download Ollama and the Gemma 3 AI model (~3 GB one-time download). After that it starts instantly.
+
+            See the [README](../../blob/main/README.md) for full usage instructions.
+          files: |
+            dist/AIControl.apk
+            dist/AIControlAgent-linux
+            dist/AIControlAgent-windows.exe
+            dist/AIControlAgent-macos
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

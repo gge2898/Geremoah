@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">AI Control</string>
+    <string name="task_hint">Task (e.g. open Firefox and go to google.com)</string>
+    <string name="btn_connect">Connect</string>
+    <string name="btn_disconnect">Disconnect</string>
+    <string name="btn_run">Run</string>
+    <string name="btn_stop">Stop</string>
+    <string name="status_disconnected">Not connected — pair phone in computer\'s Bluetooth settings</string>
+</resources>

@@ -3,6 +3,7 @@ pluginManagement {
         google()
         mavenCentral()
         gradlePluginPortal()
+        maven { url = uri("https://storage.googleapis.com/download.tensorflow.org/maven") }
     }
 }
 dependencyResolutionManagement {
@@ -10,6 +11,9 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        // Google AI Edge SDK (Gemini Nano / AICore)
+        maven { url = uri("https://storage.googleapis.com/download.tensorflow.org/maven") }
+        maven { url = uri("https://jitpack.io") }
     }
 }
 

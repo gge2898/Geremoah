@@ -50,21 +50,36 @@ Task done:    {"type":"done","message":"what was accomplished"}
 
     private var model: GenerativeModel? = null
 
-    /** Returns true if Gemini Nano (AICore) is available on this device. */
+    /**
+     * Returns true if Gemini Nano (AICore) is available on this device.
+     *
+     * AICore requires Android 14+ on supported hardware (Pixel 8/9, Galaxy S24).
+     * Wrapped in try/catch because the check itself may throw on unsupported devices.
+     */
     fun isAvailable(): Boolean = try {
-        GenerativeModel.isAvailable(context)
-    } catch (e: Exception) {
+        // The AICore SDK exposes availability via a companion object check.
+        // We also do a lightweight probe by attempting construction; if AICore
+        // is missing the class won't load and we catch NoClassDefFoundError.
+        val cls = Class.forName("com.google.ai.edge.aicore.GenerativeModel")
+        val method = cls.getMethod("isAvailable", Context::class.java)
+        method.invoke(null, context.applicationContext) as? Boolean ?: false
+    } catch (e: Throwable) {
         false
     }
 
-    /** Initialize the model. Call once before [runTask]. */
+    /**
+     * Initialize the Gemini Nano model.
+     * Must be called after confirming [isAvailable] returns true.
+     */
     fun init() {
+        // Use applicationContext to avoid leaking the Activity.
+        val appContext = context.applicationContext
         model = GenerativeModel(
             generationConfig = generationConfig {
-                context = this@AIAgent.context
-                temperature = 0.1f   // low temperature for deterministic actions
+                context = appContext
+                temperature = 0.1f   // low temperature for deterministic, structured output
                 topK = 16
-                maxOutputTokens = 256
+                maxOutputTokens = 300
             }
         )
     }

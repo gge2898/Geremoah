@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foreground: simple phone + wifi icon to represent remote AI control -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Phone body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,20 L70,20 Q74,20 74,24 L74,84 Q74,88 70,88 L38,88 Q34,88 34,84 L34,24 Q34,20 38,20 Z" />
+
+    <!-- Screen area -->
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M38,28 L70,28 L70,78 L38,78 Z" />
+
+    <!-- AI symbol on screen: simple robot face -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,42 Q48,38 54,38 L54,38 Q60,38 60,42 L60,52 Q60,56 54,56 L54,56 Q48,56 48,52 Z" />
+    <!-- Eyes -->
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M51,44 Q51,42 53,42 Q55,42 55,44 Q55,46 53,46 Q51,46 51,44 Z" />
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M55,44 Q55,42 57,42 Q59,42 59,44 Q59,46 57,46 Q55,46 55,44 Z" />
+    <!-- Mouth -->
+    <path
+        android:fillColor="#6200EE"
+        android:pathData="M51,50 L57,50" android:strokeColor="#6200EE" android:strokeWidth="1.5" />
+
+    <!-- Signal waves (camera/AI symbol) -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M42,63 Q54,58 66,63" />
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:fillColor="@android:color/transparent"
+        android:pathData="M44,68 Q54,64 64,68" />
+
+    <!-- Home button -->
+    <path
+        android:fillColor="#CCCCCC"
+        android:pathData="M50,82 Q54,80 58,82 Q58,86 54,86 Q50,86 50,82 Z" />
+</vector>

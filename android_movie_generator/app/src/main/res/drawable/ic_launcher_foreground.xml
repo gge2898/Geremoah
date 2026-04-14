@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Play triangle -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,28 L38,80 L82,54 Z" />
+
+    <!-- Film-strip notches (rectangles as paths) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M18,20 L28,20 L28,30 L18,30 Z
+                          M18,38 L28,38 L28,48 L18,48 Z
+                          M18,56 L28,56 L28,66 L18,66 Z
+                          M18,74 L28,74 L28,84 L18,84 Z" />
+
+</vector>

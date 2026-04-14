@@ -38,15 +38,32 @@ jobs:
       - name: Install Python dependencies
         run: pip install pyinstaller openai rich
 
-      # ── Linux / macOS build ────────────────────────────────────────────────
-      - name: Build executable (Linux / macOS)
-        if: runner.os != 'Windows'
+      # ── Linux build ────────────────────────────────────────────────────────
+      - name: Build executable (Linux)
+        if: runner.os == 'Linux'
         run: |
           pyinstaller --onefile --name MovieGenerator --distpath dist movie_generator/movie_generator.py
           mv dist/MovieGenerator dist/${{ matrix.artifact }}
 
-      - name: Upload artifact (Linux / macOS)
-        if: runner.os != 'Windows'
+      - name: Upload artifact (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+          retention-days: 7
+
+      # ── macOS build — ad-hoc sign so Gatekeeper shows "Open Anyway" ────────
+      - name: Build executable (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller --onefile --name MovieGenerator --distpath dist movie_generator/movie_generator.py
+          # Ad-hoc code signature — lets macOS show "Open Anyway" instead of a hard block
+          codesign --force --deep --sign - dist/MovieGenerator
+          mv dist/MovieGenerator dist/${{ matrix.artifact }}
+
+      - name: Upload artifact (macOS)
+        if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
@@ -69,10 +86,58 @@ jobs:
           path: dist/${{ matrix.artifact }}.exe
           retention-days: 7
 
-  # ── Publish a GitHub Release with all three executables ─────────────────────
+  # ── Build platform helper scripts (no Gatekeeper / SmartScreen issues) ──────
+  scripts:
+    name: Build launcher scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # macOS .command — double-click to run in Terminal, bypasses Gatekeeper
+      - name: Write macOS launcher
+        run: |
+          cat > MovieGenerator-macos.command << 'EOF'
+          #!/bin/bash
+          # AI Movie Generator — macOS launcher
+          # Double-click this file to open it in Terminal and run the program.
+          cd "$(dirname "$0")"
+          echo "Checking Python..."
+          if ! command -v python3 &>/dev/null; then
+            echo "Python 3 not found. Install it from https://python.org then re-run this script."
+            read -p "Press Enter to exit..."
+            exit 1
+          fi
+          echo "Installing/updating dependencies..."
+          python3 -m pip install --quiet --upgrade openai rich
+          echo "Starting AI Movie Generator..."
+          python3 movie_generator.py
+          EOF
+          chmod +x MovieGenerator-macos.command
+
+      # Windows .bat — double-click to run, no SmartScreen issues for scripts
+      - name: Write Windows launcher
+        run: |
+          printf '@echo off\r\necho Checking Python...\r\npython --version >nul 2>&1\r\nif errorlevel 1 (\r\n    echo Python not found. Install it from https://python.org then re-run this script.\r\n    pause\r\n    exit /b 1\r\n)\r\necho Installing/updating dependencies...\r\npython -m pip install --quiet --upgrade openai rich\r\necho Starting AI Movie Generator...\r\npython movie_generator.py\r\npause\r\n' > MovieGenerator-windows.bat
+
+      - name: Upload macOS script
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-macos
+          path: MovieGenerator-macos.command
+          retention-days: 7
+
+      - name: Upload Windows script
+        uses: actions/upload-artifact@v4
+        with:
+          name: launcher-windows
+          path: MovieGenerator-windows.bat
+          retention-days: 7
+
+  # ── Publish a GitHub Release with everything ─────────────────────────────────
   release:
     name: Publish Release
-    needs: build
+    needs: [build, scripts]
     runs-on: ubuntu-latest
 
     steps:
@@ -87,6 +152,9 @@ jobs:
       - name: Show downloaded files
         run: ls -lh dist/
 
+      - name: Copy standalone Python script into dist
+        run: cp movie_generator/movie_generator.py dist/movie_generator.py
+
       - name: Delete previous release (if it exists)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -95,7 +163,7 @@ jobs:
       - name: Delete previous tag (if it exists)
         run: git push origin :refs/tags/movie-generator-latest 2>/dev/null || true
 
-      - name: Write release notes to file
+      - name: Write release notes
         run: |
           cat > /tmp/notes.md << 'NOTES'
           ## AI Movie Generator
@@ -103,23 +171,33 @@ jobs:
           Describe any movie in plain English → ChatGPT writes the Blender Python code
           → Blender renders it with the fast **Eevee** real-time engine → MP4 saved locally.
 
-          ### Download for your platform
+          ---
 
-          | Platform | File |
-          |---|---|
-          | **Windows** | `MovieGenerator-windows.exe` |
-          | **Linux** | `MovieGenerator-linux` |
-          | **macOS** | `MovieGenerator-macos` |
+          ### Choose your download
+
+          | Platform | Standalone exe | Script (no install) |
+          |---|---|---|
+          | **Windows** | `MovieGenerator-windows.exe` | `MovieGenerator-windows.bat` |
+          | **macOS** | `MovieGenerator-macos` | `MovieGenerator-macos.command` |
+          | **Linux** | `MovieGenerator-linux` | `movie_generator.py` |
+
+          > **Tip for macOS users:** If the `.exe`-style binary shows a security warning,
+          > use `MovieGenerator-macos.command` instead — double-click it in Finder,
+          > it opens Terminal and runs automatically. No warning, no hassle.
+          >
+          > Or right-click the binary → **Open** → **Open** to bypass Gatekeeper once.
+
+          ---
 
           ### Only other requirement
           **Blender 3.5+** — https://www.blender.org/download/
           The program finds Blender automatically, or asks you where it is.
 
           ### How to run
-          1. Download the file for your platform above
-          2. Run it from a terminal (or double-click on Windows/macOS)
+          1. Download your preferred file above
+          2. Open/double-click it
           3. Enter your OpenAI API key when prompted (never saved to disk)
-          4. Describe your movie and press Enter
+          4. Describe your movie and press Enter — your MP4 appears in `output/`
 
           ### Example prompts
           ```
@@ -139,4 +217,7 @@ jobs:
             --notes-file /tmp/notes.md \
             dist/MovieGenerator-linux \
             "dist/MovieGenerator-windows.exe" \
-            dist/MovieGenerator-macos
+            dist/MovieGenerator-macos \
+            dist/MovieGenerator-macos.command \
+            dist/MovieGenerator-windows.bat \
+            dist/movie_generator.py

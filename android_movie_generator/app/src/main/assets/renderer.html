@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<style>
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+  }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<!-- Three.js r158 — 3D engine, equivalent to Blender Eevee for real-time rendering -->
+<script src="https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.min.js"></script>
+<script>
+// ── Renderer setup ────────────────────────────────────────────────────────────
+const RENDER_WIDTH  = 720;
+const RENDER_HEIGHT = 1280;
+
+const threeRenderer = new THREE.WebGLRenderer({
+  antialias: true,
+  preserveDrawingBuffer: true   // required for toDataURL() frame capture
+});
+threeRenderer.setSize(RENDER_WIDTH, RENDER_HEIGHT);
+threeRenderer.shadowMap.enabled = true;
+threeRenderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(threeRenderer.domElement);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(60, RENDER_WIDTH / RENDER_HEIGHT, 0.1, 1000);
+camera.position.set(0, 2, 8);
+camera.lookAt(0, 0, 0);
+
+// ── Animation code injected by the Android app ────────────────────────────────
+// The code below is replaced at runtime with ChatGPT-generated Three.js.
+// It must define:
+//   const TOTAL_FRAMES = <number>;
+//   function initScene(THREE, scene, camera)   { ... }
+//   function updateScene(frameNum, THREE, scene, camera) { ... }
+//
+// @@ANIMATION_CODE@@
+
+// ── Frame capture interface ───────────────────────────────────────────────────
+function renderAndCapture(frameNum) {
+  try {
+    if (typeof updateScene === 'function') {
+      updateScene(frameNum, THREE, scene, camera);
+    }
+    threeRenderer.render(scene, camera);
+
+    // Force GPU to finish before reading pixels
+    const gl = threeRenderer.getContext();
+    gl.finish();
+
+    // Capture frame as JPEG base64 and send to Android
+    const dataUrl = threeRenderer.domElement.toDataURL('image/jpeg', 0.88);
+    const base64  = dataUrl.substring(dataUrl.indexOf(',') + 1);
+    Android.onFrameCaptured(frameNum, base64);
+  } catch (err) {
+    Android.onRenderError(String(err));
+  }
+}
+
+// Android calls this to request the next frame
+window.renderFrame = function(frameNum) {
+  renderAndCapture(frameNum);
+};
+
+// ── Initialise scene then signal ready ────────────────────────────────────────
+(function init() {
+  try {
+    if (typeof initScene === 'function') {
+      initScene(THREE, scene, camera);
+    }
+    const total = (typeof TOTAL_FRAMES !== 'undefined') ? TOTAL_FRAMES : 240;
+    Android.onRendererReady(total);
+  } catch (err) {
+    Android.onRenderError('initScene error: ' + String(err));
+  }
+})();
+</script>
+</body>
+</html>

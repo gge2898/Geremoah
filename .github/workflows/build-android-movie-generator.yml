@@ -25,17 +25,25 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
-          cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      # ubuntu-latest already has Android SDK; just need to accept licences
+      # and install the specific platform our compileSdk=34 needs.
+      - name: Install Android SDK platform 34
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
+            "platforms;android-34" \
+            "build-tools;34.0.0"
 
-      - name: Make Gradle wrapper executable
+      # Use Gradle from the wrapper (gradle-wrapper.jar is committed in the repo)
+      - name: Make gradlew executable
         run: chmod +x android_movie_generator/gradlew
 
       - name: Build debug APK
         working-directory: android_movie_generator
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
 
       - name: Rename APK
         run: |
@@ -70,7 +78,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Remove old Android asset if it exists, then upload the new one
           gh release upload movie-generator-latest \
             dist/MovieGenerator-android.apk \
             --repo "${{ github.repository }}" \

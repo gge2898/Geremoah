@@ -7,64 +7,66 @@ on:
     paths:
       - "movie_generator/movie_generator.py"
       - ".github/workflows/build-movie-generator.yml"
-  workflow_dispatch:   # allow manual trigger from the Actions tab
+  workflow_dispatch:   # lets you trigger manually from the Actions tab
 
 permissions:
-  contents: write    # needed to create/update the release
+  contents: write    # required to create/update releases
 
 jobs:
-  # ── Build one executable per platform ───────────────────────────────────────
+  # ── Build one standalone executable per platform ────────────────────────────
   build:
     name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             artifact: MovieGenerator-linux
-            exe: MovieGenerator
           - os: windows-latest
             artifact: MovieGenerator-windows
-            exe: MovieGenerator.exe
           - os: macos-latest
             artifact: MovieGenerator-macos
-            exe: MovieGenerator
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: pip install pyinstaller openai rich
 
-      - name: Build single-file executable
-        run: |
-          pyinstaller \
-            --onefile \
-            --name MovieGenerator \
-            --distpath dist \
-            movie_generator/movie_generator.py
-
-      # Rename to include platform suffix for clarity
-      - name: Rename executable (Linux / macOS)
+      # ── Linux / macOS build ────────────────────────────────────────────────
+      - name: Build executable (Linux / macOS)
         if: runner.os != 'Windows'
-        run: mv dist/MovieGenerator dist/${{ matrix.artifact }}
+        run: |
+          pyinstaller --onefile --name MovieGenerator --distpath dist movie_generator/movie_generator.py
+          mv dist/MovieGenerator dist/${{ matrix.artifact }}
 
-      - name: Rename executable (Windows)
-        if: runner.os == 'Windows'
-        run: Rename-Item -Path dist\MovieGenerator.exe -NewName ${{ matrix.artifact }}.exe
-        shell: pwsh
-
-      - name: Upload build artifact
+      - name: Upload artifact (Linux / macOS)
+        if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: dist/${{ matrix.artifact }}*
+          path: dist/${{ matrix.artifact }}
+          retention-days: 7
+
+      # ── Windows build ──────────────────────────────────────────────────────
+      - name: Build executable (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pyinstaller --onefile --name MovieGenerator --distpath dist movie_generator/movie_generator.py
+          Rename-Item -Path "dist\MovieGenerator.exe" -NewName "${{ matrix.artifact }}.exe"
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}.exe
           retention-days: 7
 
   # ── Publish a GitHub Release with all three executables ─────────────────────
@@ -74,59 +76,67 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download all artifacts
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
 
-      - name: List downloaded files
+      - name: Show downloaded files
         run: ls -lh dist/
 
-      - name: Delete old release + tag (if exists)
+      - name: Delete previous release (if it exists)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release delete movie-generator-latest --yes 2>/dev/null || true
+
+      - name: Delete previous tag (if it exists)
+        run: git push origin :refs/tags/movie-generator-latest 2>/dev/null || true
+
+      - name: Write release notes to file
         run: |
-          gh release delete movie-generator-latest --repo ${{ github.repository }} --yes 2>/dev/null || true
-          git config --global user.email "actions@github.com"
-          git config --global user.name  "GitHub Actions"
+          cat > /tmp/notes.md << 'NOTES'
+          ## AI Movie Generator
+
+          Describe any movie in plain English → ChatGPT writes the Blender Python code
+          → Blender renders it with the fast **Eevee** real-time engine → MP4 saved locally.
+
+          ### Download for your platform
+
+          | Platform | File |
+          |---|---|
+          | **Windows** | `MovieGenerator-windows.exe` |
+          | **Linux** | `MovieGenerator-linux` |
+          | **macOS** | `MovieGenerator-macos` |
+
+          ### Only other requirement
+          **Blender 3.5+** — https://www.blender.org/download/
+          The program finds Blender automatically, or asks you where it is.
+
+          ### How to run
+          1. Download the file for your platform above
+          2. Run it from a terminal (or double-click on Windows/macOS)
+          3. Enter your OpenAI API key when prompted (never saved to disk)
+          4. Describe your movie and press Enter
+
+          ### Example prompts
+          ```
+          a 15-second space battle with two ships firing lasers at each other
+          a 30-second sunrise over mountains in a low-poly art style
+          a 10-second cartoon of a red ball bouncing on a checkerboard floor
+          a 20-second sci-fi scene with a rotating space station and stars
+          ```
+          NOTES
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create movie-generator-latest \
-            --repo "${{ github.repository }}" \
             --title "AI Movie Generator" \
-            --notes "## AI Movie Generator
-
-          Describe any movie in plain English → ChatGPT writes the Blender code → Blender renders it with the Eevee engine → MP4 saved to your computer.
-
-          ### Download for your platform
-
-          | Platform | File |
-          |---|---|
-          | **Windows** | \`MovieGenerator-windows.exe\` |
-          | **Linux** | \`MovieGenerator-linux\` |
-          | **macOS** | \`MovieGenerator-macos\` |
-
-          ### Requirements
-          - **Blender 3.5+** — [blender.org/download](https://www.blender.org/download/)
-          - **OpenAI API key** — entered at startup, never stored to disk
-
-          ### How to run
-          1. Download the executable for your platform above
-          2. Double-click it (or run from a terminal)
-          3. Enter your OpenAI API key when prompted
-          4. Describe your movie and press Enter
-
-          ### Example prompts
-          \`\`\`
-          a 15-second space battle with two ships firing lasers at each other
-          a 30-second sunrise over mountains in a low-poly art style
-          a 10-second cartoon of a red ball bouncing on a checkerboard floor
-          \`\`\`
-          " \
+            --notes-file /tmp/notes.md \
             dist/MovieGenerator-linux \
-            dist/MovieGenerator-windows.exe \
+            "dist/MovieGenerator-windows.exe" \
             dist/MovieGenerator-macos

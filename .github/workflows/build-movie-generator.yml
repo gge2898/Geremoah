@@ -1,0 +1,132 @@
+name: Build & Release Movie Generator
+
+on:
+  push:
+    branches:
+      - claude/ai-movie-generator-UOfrz
+    paths:
+      - "movie_generator/movie_generator.py"
+      - ".github/workflows/build-movie-generator.yml"
+  workflow_dispatch:   # allow manual trigger from the Actions tab
+
+permissions:
+  contents: write    # needed to create/update the release
+
+jobs:
+  # ── Build one executable per platform ───────────────────────────────────────
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: MovieGenerator-linux
+            exe: MovieGenerator
+          - os: windows-latest
+            artifact: MovieGenerator-windows
+            exe: MovieGenerator.exe
+          - os: macos-latest
+            artifact: MovieGenerator-macos
+            exe: MovieGenerator
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyinstaller openai rich
+
+      - name: Build single-file executable
+        run: |
+          pyinstaller \
+            --onefile \
+            --name MovieGenerator \
+            --distpath dist \
+            movie_generator/movie_generator.py
+
+      # Rename to include platform suffix for clarity
+      - name: Rename executable (Linux / macOS)
+        if: runner.os != 'Windows'
+        run: mv dist/MovieGenerator dist/${{ matrix.artifact }}
+
+      - name: Rename executable (Windows)
+        if: runner.os == 'Windows'
+        run: Rename-Item -Path dist\MovieGenerator.exe -NewName ${{ matrix.artifact }}.exe
+        shell: pwsh
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}*
+          retention-days: 7
+
+  # ── Publish a GitHub Release with all three executables ─────────────────────
+  release:
+    name: Publish Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List downloaded files
+        run: ls -lh dist/
+
+      - name: Delete old release + tag (if exists)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete movie-generator-latest --repo ${{ github.repository }} --yes 2>/dev/null || true
+          git config --global user.email "actions@github.com"
+          git config --global user.name  "GitHub Actions"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create movie-generator-latest \
+            --repo "${{ github.repository }}" \
+            --title "AI Movie Generator" \
+            --notes "## AI Movie Generator
+
+          Describe any movie in plain English → ChatGPT writes the Blender code → Blender renders it with the Eevee engine → MP4 saved to your computer.
+
+          ### Download for your platform
+
+          | Platform | File |
+          |---|---|
+          | **Windows** | \`MovieGenerator-windows.exe\` |
+          | **Linux** | \`MovieGenerator-linux\` |
+          | **macOS** | \`MovieGenerator-macos\` |
+
+          ### Requirements
+          - **Blender 3.5+** — [blender.org/download](https://www.blender.org/download/)
+          - **OpenAI API key** — entered at startup, never stored to disk
+
+          ### How to run
+          1. Download the executable for your platform above
+          2. Double-click it (or run from a terminal)
+          3. Enter your OpenAI API key when prompted
+          4. Describe your movie and press Enter
+
+          ### Example prompts
+          \`\`\`
+          a 15-second space battle with two ships firing lasers at each other
+          a 30-second sunrise over mountains in a low-poly art style
+          a 10-second cartoon of a red ball bouncing on a checkerboard floor
+          \`\`\`
+          " \
+            dist/MovieGenerator-linux \
+            dist/MovieGenerator-windows.exe \
+            dist/MovieGenerator-macos

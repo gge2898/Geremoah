@@ -2,6 +2,20 @@
 
 Describe any movie in plain English → ChatGPT writes a complete Blender Python script → Blender renders it with the fast **Eevee** real-time engine → your **MP4** lands in `output/`.
 
+---
+
+## Download (single file, no install needed)
+
+| Platform | Download |
+|---|---|
+| **Windows** | [MovieGenerator-windows.exe](https://github.com/gge2898/Geremoah/releases/download/movie-generator-latest/MovieGenerator-windows.exe) |
+| **Linux** | [MovieGenerator-linux](https://github.com/gge2898/Geremoah/releases/download/movie-generator-latest/MovieGenerator-linux) |
+| **macOS** | [MovieGenerator-macos](https://github.com/gge2898/Geremoah/releases/download/movie-generator-latest/MovieGenerator-macos) |
+
+> **Only external requirement:** [Blender 3.5+](https://www.blender.org/download/) — the program will find it automatically or ask you where it is.
+
+Just download, double-click (or run from a terminal), enter your OpenAI API key when prompted, and start describing movies.
+
 ```
 You: "a 10-second space battle with two ships firing lasers at each other"
  │

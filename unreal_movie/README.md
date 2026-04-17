@@ -7,7 +7,9 @@ No clicks, no GUI — just run the script and get an MP4.
 
 ## Watch the movie
 
-**[▶ Download / Watch buddys_big_day.mp4](../../releases/latest/download/buddys_big_day.mp4)**
+**[▶ Watch buddys_big_day.mp4](https://github.com/gge2898/Geremoah/blob/claude/unreal-kids-animation-SpB1W/unreal_movie/buddys_big_day.mp4)**
+
+> GitHub renders `.mp4` files with a built-in video player — just click the link above.
 
 ---
 

@@ -16,7 +16,7 @@ scene.render.fps = 24
 # Use Cycles for CPU headless rendering
 # -----------------------
 scene.render.engine = 'CYCLES'
-scene.cycles.samples = 32
+scene.cycles.samples = 8
 scene.cycles.use_denoising = False
 scene.render.use_motion_blur = False
 
